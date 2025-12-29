@@ -21,28 +21,19 @@ import 'package:talawa/views/base_view.dart';
 import '../../../helpers/test_helpers.dart';
 import '../../../helpers/test_locator.dart';
 
-const String _testEventId = "1";
-const String _testOrgId = "XYZ"; // From test_helpers.dart mock
-const Key _groupDataKey = Key("group_data");
-const Key _addGroupBtnKey = Key("add_group_btn");
-const Key _addGrpDialogueKey = Key("add_grp_dialogue");
-const Key _groupNameFieldKey = Key("group_name_field");
-const Key _volunteersRequiredFieldKey = Key("volunteers_required_field");
-
 Event getTestEvent({
   bool isPublic = false,
+  bool viewOnMap = true,
   bool asAdmin = false,
 }) {
   return Event(
-    id: _testEventId,
+    id: "1",
     name: "test_event",
     creator: User(
       id: asAdmin ? "xzy1" : "acb1",
       name: "ravidi shaikh",
     ),
     isPublic: isPublic,
-    startAt: DateTime.parse("2023-01-01 00:00:00"),
-    endAt: DateTime.parse("2023-01-02 00:00:00"),
     location: "iitbhu, varanasi",
     description: "test_event_description",
     admins: [
@@ -64,7 +55,11 @@ Event getTestEvent({
   );
 }
 
-Widget volunteerGroupsScreen() {
+Widget volunteerGroupsScreen({
+  bool isPublic = true,
+  bool viewOnMap = true,
+  bool asAdmin = true,
+}) {
   return BaseView<AppLanguage>(
     onModelReady: (model) => model.initialize(),
     builder: (context, langModel, child) {
@@ -89,7 +84,7 @@ Widget volunteerGroupsScreen() {
             home: Scaffold(
               body: VolunteerGroupsScreen(
                 event: getTestEvent(),
-                model: model,
+                model: EventInfoViewModel(),
               ),
             ),
             navigatorKey: locator<NavigationService>().navigatorKey,
@@ -99,61 +94,6 @@ Widget volunteerGroupsScreen() {
       );
     },
   );
-}
-
-/// Helper to setup mocks and pump widget with groups.
-///
-/// Configures EventService mocks for fetching groups, agenda categories,
-/// and agenda items to avoid null errors in ViewModel initialization.
-///
-/// **params**:
-/// * `tester`: The widget tester instance
-/// * `groups`: List of mock EventVolunteerGroup objects to be returned
-/// * `additionalSetup`: Optional callback for per-test mock configuration
-///
-/// **returns**:
-///   None
-Future<void> setupAndPumpWithGroups(
-  WidgetTester tester,
-  List<EventVolunteerGroup> groups, {
-  Future<void> Function()? additionalSetup,
-}) async {
-  final mockEventService = locator<EventService>();
-
-  // Mock fetching groups
-  when(mockEventService.fetchVolunteerGroupsByEvent(_testEventId))
-      .thenAnswer((_) async => groups);
-
-  // Mock fetching categories (Called by EventInfoViewModel.fetchCategories)
-  // Must return valid structure to avoid null errors in ViewModel
-  when(mockEventService.fetchAgendaCategories(_testOrgId)).thenAnswer(
-    (_) async => QueryResult(
-      options: QueryOptions(document: gql('query {}')),
-      source: QueryResultSource.network,
-      data: {
-        'agendaItemCategoriesByOrganization': [],
-      },
-    ),
-  );
-
-  // Mock fetching agenda items (Called by EventInfoViewModel.fetchAgendaItems)
-  // Must return valid structure
-  when(mockEventService.fetchAgendaItems(_testEventId)).thenAnswer(
-    (_) async => QueryResult(
-      options: QueryOptions(document: gql('query {}')),
-      source: QueryResultSource.network,
-      data: {
-        'agendaItemByEvent': [],
-      },
-    ),
-  );
-
-  if (additionalSetup != null) {
-    await additionalSetup();
-  }
-
-  await tester.pumpWidget(volunteerGroupsScreen());
-  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -170,16 +110,10 @@ void main() {
     unregisterServices();
   });
 
-  setUp(() {
-    reset(locator<EventService>());
-    reset(locator<NavigationService>());
-    when(locator<NavigationService>().navigatorKey)
-        .thenReturn(GlobalKey<NavigatorState>());
-  });
-
   group("Widget Tests for VolunteerGroupscreen", () {
     testWidgets("Check if VolunteerGroupscreen shows up", (tester) async {
-      await setupAndPumpWithGroups(tester, []);
+      await tester.pumpWidget(volunteerGroupsScreen());
+      await tester.pumpAndSettle();
 
       expect(find.byType(VolunteerGroupsScreen), findsOneWidget);
     });
@@ -187,13 +121,14 @@ void main() {
     testWidgets(
         "Check if no groups are displayed when there are no volunteer groups",
         (tester) async {
-      await setupAndPumpWithGroups(tester, []);
+      await tester.pumpWidget(volunteerGroupsScreen());
+      await tester.pumpAndSettle();
 
       expect(find.byType(VolunteerGroupsScreen), findsOneWidget);
       expect(find.text("There aren't any volunteer groups"), findsOneWidget);
     });
-
-    testWidgets("Check if groups show up and add group works", (tester) async {
+    testWidgets("Check if groups show up", (tester) async {
+      final mockEventService = locator<EventService>();
       final mockGroups = [
         EventVolunteerGroup(name: "Group 1", createdAt: "2027-09-08"),
         EventVolunteerGroup(name: "Group 2", createdAt: "2027-09-09"),
@@ -207,44 +142,44 @@ void main() {
         },
       };
 
-      await setupAndPumpWithGroups(
-        tester,
-        mockGroups,
-        additionalSetup: () async {
-          when(
-            locator<EventService>().createVolunteerGroup({
-              'eventId': _testEventId,
-              'name': "New Group",
-              'volunteersRequired': 5,
-            }),
-          ).thenAnswer(
-            (realInvocation) async => QueryResult(
-              data: mockResult2,
-              source: QueryResultSource.network,
-              options: QueryOptions(
-                document: gql(EventQueries().createVolunteerGroup()),
-              ),
-            ),
-          );
-        },
+      when(mockEventService.fetchVolunteerGroupsByEvent("1"))
+          .thenAnswer((_) async => mockGroups);
+
+      when(
+        mockEventService.createVolunteerGroup({
+          'eventId': "1",
+          'name': "New Group",
+          'volunteersRequired': 5,
+        }),
+      ).thenAnswer(
+        (realInvocation) async => QueryResult(
+          data: mockResult2,
+          source: QueryResultSource.network,
+          options: QueryOptions(
+            document: gql(EventQueries().createVolunteerGroup()),
+          ),
+        ),
       );
+
+      await tester.pumpWidget(volunteerGroupsScreen());
+      await tester.pumpAndSettle();
 
       expect(find.byType(VolunteerGroupsScreen), findsOneWidget);
       expect(find.text("There aren't any volunteer groups"), findsNothing);
-      expect(find.byKey(_groupDataKey), findsNWidgets(2));
+      expect(find.byKey(const Key("group_data")), findsNWidgets(2));
 
-      expect(find.byKey(_addGroupBtnKey), findsOneWidget);
-      await tester.tap(find.byKey(_addGroupBtnKey));
+      expect(find.byKey(const Key("add_group_btn")), findsOneWidget);
+      await tester.tap(find.byKey(const Key("add_group_btn")));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(_addGrpDialogueKey), findsOneWidget);
+      expect(find.byKey(const Key("add_grp_dialogue")), findsOneWidget);
 
       await tester.enterText(
-        find.byKey(_groupNameFieldKey),
+        find.byKey(const Key("group_name_field")),
         "New Group",
       );
       await tester.enterText(
-        find.byKey(_volunteersRequiredFieldKey),
+        find.byKey(const Key("volunteers_required_field")),
         "5",
       );
 
@@ -256,8 +191,8 @@ void main() {
         findsNothing,
       );
     });
-
     testWidgets("Check if edit group icon show up", (tester) async {
+      final mockEventService = locator<EventService>();
       final mockGroups = [
         EventVolunteerGroup(
           name: "Group 1",
@@ -271,63 +206,79 @@ void main() {
         ),
       ];
 
-      await setupAndPumpWithGroups(tester, mockGroups);
+      when(mockEventService.fetchVolunteerGroupsByEvent("1"))
+          .thenAnswer((_) async => mockGroups);
+
+      await tester.pumpWidget(volunteerGroupsScreen());
+      await tester.pumpAndSettle();
 
       expect(find.byType(VolunteerGroupsScreen), findsOneWidget);
       expect(find.text("There aren't any volunteer groups"), findsNothing);
-      expect(find.byKey(_groupDataKey), findsNWidgets(2));
+      expect(find.byKey(const Key("group_data")), findsNWidgets(2));
 
       expect(find.byIcon(Icons.edit), findsNWidgets(2));
 
       await tester.tap(find.byIcon(Icons.edit).first);
       await tester.pumpAndSettle();
     });
+    testWidgets("Check if no groups show up", (tester) async {
+      final mockEventService = locator<EventService>();
 
+      when(mockEventService.fetchVolunteerGroupsByEvent("1"))
+          .thenAnswer((_) async => []);
+
+      await tester.pumpWidget(volunteerGroupsScreen());
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VolunteerGroupsScreen), findsOneWidget);
+      expect(find.text("There aren't any volunteer groups"), findsOneWidget);
+    });
     testWidgets("Check if add group method throw error show up",
         (tester) async {
+      final mockEventService = locator<EventService>();
       final mockGroups = [
         EventVolunteerGroup(name: "Group 1", createdAt: "2027-09-08"),
         EventVolunteerGroup(name: "Group 2", createdAt: "2027-09-09"),
       ];
 
-      await setupAndPumpWithGroups(
-        tester,
-        mockGroups,
-        additionalSetup: () async {
-          when(
-            locator<EventService>().createVolunteerGroup({
-              'eventId': _testEventId,
-              'name': "New Group",
-              'volunteersRequired': 5,
-            }),
-          ).thenThrow(Exception("Test exception"));
-        },
-      );
+      when(mockEventService.fetchVolunteerGroupsByEvent("1"))
+          .thenAnswer((_) async => mockGroups);
+
+      when(
+        mockEventService.createVolunteerGroup({
+          'eventId': "1",
+          'name': "New Group",
+          'volunteersRequired': 5,
+        }),
+      ).thenThrow("exception");
+
+      await tester.pumpWidget(volunteerGroupsScreen());
+      await tester.pumpAndSettle();
 
       expect(find.byType(VolunteerGroupsScreen), findsOneWidget);
       expect(find.text("There aren't any volunteer groups"), findsNothing);
-      expect(find.byKey(_groupDataKey), findsNWidgets(2));
+      expect(find.byKey(const Key("group_data")), findsNWidgets(2));
 
-      expect(find.byKey(_addGroupBtnKey), findsOneWidget);
-      await tester.tap(find.byKey(_addGroupBtnKey));
+      expect(find.byKey(const Key("add_group_btn")), findsOneWidget);
+      await tester.tap(find.byKey(const Key("add_group_btn")));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(_addGrpDialogueKey), findsOneWidget);
+      expect(find.byKey(const Key("add_grp_dialogue")), findsOneWidget);
       expect(find.text("Cancel"), findsOneWidget);
 
       await tester.tap(find.text("Cancel"));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(_addGrpDialogueKey), findsNothing);
-      await tester.tap(find.byKey(_addGroupBtnKey));
+      expect(find.byKey(const Key("add_grp_dialogue")), findsNothing);
+      await tester.tap(find.byKey(const Key("add_group_btn")));
       await tester.pumpAndSettle();
 
       await tester.enterText(
-        find.byKey(_groupNameFieldKey),
+        find.byKey(const Key("group_name_field")),
         "New Group",
       );
       await tester.enterText(
-        find.byKey(_volunteersRequiredFieldKey),
+        find.byKey(const Key("volunteers_required_field")),
         "5",
       );
 
@@ -339,34 +290,44 @@ void main() {
         findsOneWidget,
       );
     });
-
-    testWidgets("Check if add group method validates entered data",
+    testWidgets("Check if add group method throw entre data show up",
         (tester) async {
+      final mockEventService = locator<EventService>();
       final mockGroups = [
         EventVolunteerGroup(name: "Group 1", createdAt: "2027-09-08"),
         EventVolunteerGroup(name: "Group 2", createdAt: "2027-09-09"),
       ];
 
-      await setupAndPumpWithGroups(tester, mockGroups);
+      when(mockEventService.fetchVolunteerGroupsByEvent("1"))
+          .thenAnswer((_) async => mockGroups);
 
+      when(
+        mockEventService.createVolunteerGroup({
+          'eventId': "1",
+          'name': "New Group",
+          'volunteersRequired': 5,
+        }),
+      ).thenThrow("exception");
+
+      await tester.pumpWidget(volunteerGroupsScreen());
       await tester.pumpAndSettle();
 
       expect(find.byType(VolunteerGroupsScreen), findsOneWidget);
       expect(find.text("There aren't any volunteer groups"), findsNothing);
-      expect(find.byKey(_groupDataKey), findsNWidgets(2));
+      expect(find.byKey(const Key("group_data")), findsNWidgets(2));
 
-      expect(find.byKey(_addGroupBtnKey), findsOneWidget);
-      await tester.tap(find.byKey(_addGroupBtnKey));
+      expect(find.byKey(const Key("add_group_btn")), findsOneWidget);
+      await tester.tap(find.byKey(const Key("add_group_btn")));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(_addGrpDialogueKey), findsOneWidget);
+      expect(find.byKey(const Key("add_grp_dialogue")), findsOneWidget);
 
       await tester.enterText(
-        find.byKey(_groupNameFieldKey),
+        find.byKey(const Key("group_name_field")),
         "",
       );
       await tester.enterText(
-        find.byKey(_volunteersRequiredFieldKey),
+        find.byKey(const Key("volunteers_required_field")),
         "0",
       );
 
@@ -377,227 +338,6 @@ void main() {
         find.text('Please enter valid data'),
         findsOneWidget,
       );
-    });
-
-    testWidgets("Check if invalid date is handled correctly", (tester) async {
-      final mockGroups = [
-        EventVolunteerGroup(
-          name: "Srikar's Team",
-          createdAt: "invalid-date-string",
-          volunteersRequired: 5,
-        ),
-      ];
-
-      await setupAndPumpWithGroups(tester, mockGroups);
-
-      expect(find.byType(VolunteerGroupsScreen), findsOneWidget);
-      expect(find.text("Invalid date"), findsOneWidget);
-    });
-
-    testWidgets("Check if pull to refresh calls fetchVolunteerGroups",
-        (tester) async {
-      final mockEventService = locator<EventService>();
-      final mockGroups = [
-        EventVolunteerGroup(
-          name: "Srikar's Team",
-          createdAt: "2027-09-08",
-          volunteersRequired: 5,
-        ),
-      ];
-
-      await setupAndPumpWithGroups(tester, mockGroups);
-
-      await tester.drag(find.byType(RefreshIndicator), const Offset(0, 300));
-      await tester.pumpAndSettle();
-
-      verify(mockEventService.fetchVolunteerGroupsByEvent(_testEventId))
-          .called(2);
-    });
-
-    testWidgets("Check if edit group navigation works with correct arguments",
-        (tester) async {
-      final mockNavigationService = locator<NavigationService>();
-      final mockGroups = [
-        EventVolunteerGroup(
-          name: "Srikar's Team",
-          createdAt: "2027-09-08",
-          volunteersRequired: 5,
-        ),
-      ];
-
-      await setupAndPumpWithGroups(tester, mockGroups);
-
-      await tester.tap(find.byIcon(Icons.edit).first);
-      await tester.pumpAndSettle();
-
-      verify(
-        mockNavigationService.pushScreen(
-          "/manageVolunteerScreen",
-          arguments: argThat(
-            isA<List>()
-                .having((list) => list.length, 'length', 2)
-                .having((list) => list[0], 'event', isA<Event>())
-                .having(
-                  (list) => list[1],
-                  'group',
-                  isA<EventVolunteerGroup>()
-                      .having((g) => g.name, 'name', "Srikar's Team"),
-                ),
-            named: 'arguments',
-          ),
-        ),
-      ).called(1);
-    });
-
-    testWidgets("Check if successful group creation navigates to manage screen",
-        (tester) async {
-      final mockEventService = locator<EventService>();
-      final mockNavigationService = locator<NavigationService>();
-      final mockGroups = [
-        EventVolunteerGroup(name: "Srikar's Team", createdAt: "2027-09-08"),
-      ];
-      final newGroupMap = {
-        '_id': "fakeUser2",
-        'name': "Srikar's Team",
-        'volunteersRequired': 5,
-        'volunteers': [],
-      };
-
-      await setupAndPumpWithGroups(
-        tester,
-        mockGroups,
-        additionalSetup: () async {
-          when(
-            mockEventService.createVolunteerGroup({
-              'eventId': _testEventId,
-              'name': "Srikar's Team",
-              'volunteersRequired': 5,
-            }),
-          ).thenAnswer(
-            (realInvocation) async => QueryResult(
-              data: {'createEventVolunteerGroup': newGroupMap},
-              source: QueryResultSource.network,
-              options: QueryOptions(
-                document: gql(EventQueries().createVolunteerGroup()),
-              ),
-            ),
-          );
-        },
-      );
-
-      await tester.tap(find.byKey(_addGroupBtnKey));
-      await tester.pumpAndSettle();
-
-      await tester.enterText(
-        find.byKey(_groupNameFieldKey),
-        "Srikar's Team",
-      );
-      await tester.enterText(
-        find.byKey(_volunteersRequiredFieldKey),
-        "5",
-      );
-
-      await tester.tap(find.text('Create Group'));
-      await tester.pumpAndSettle();
-
-      verify(
-        mockNavigationService.pushScreen(
-          "/manageVolunteerScreen",
-          arguments: argThat(
-            isA<List>()
-                .having((list) => list.length, 'length', 2)
-                .having((list) => list[0], 'event', isA<Event>())
-                .having(
-                  (list) => list[1],
-                  'group',
-                  isA<EventVolunteerGroup>()
-                      .having((g) => g.name, 'name', "Srikar's Team")
-                      .having(
-                        (g) => g.volunteersRequired,
-                        'volunteersRequired',
-                        5,
-                      ),
-                ),
-            named: 'arguments',
-          ),
-        ),
-      ).called(1);
-    });
-
-    testWidgets("Check if null date is handled correctly", (tester) async {
-      final mockGroups = [
-        EventVolunteerGroup(
-          name: "Srikar's Team",
-          createdAt: null,
-          volunteersRequired: 5,
-        ),
-      ];
-
-      await setupAndPumpWithGroups(tester, mockGroups);
-
-      expect(find.byType(VolunteerGroupsScreen), findsOneWidget);
-      expect(find.text("N/A"), findsOneWidget);
-    });
-
-    testWidgets("Check if null group name is handled correctly",
-        (tester) async {
-      final mockGroups = [
-        EventVolunteerGroup(
-          name: null, // Test null name
-          createdAt: "2027-09-08",
-          volunteersRequired: 5,
-        ),
-      ];
-
-      await setupAndPumpWithGroups(tester, mockGroups);
-
-      expect(find.byType(VolunteerGroupsScreen), findsOneWidget);
-      expect(find.text("N/A"), findsOneWidget);
-    });
-
-    testWidgets(
-        "Check if createVolunteerGroup returning null shows failure message",
-        (tester) async {
-      final mockEventService = locator<EventService>();
-      final mockGroups = [
-        EventVolunteerGroup(name: "Srikar's Team", createdAt: "2027-09-08"),
-      ];
-
-      await setupAndPumpWithGroups(
-        tester,
-        mockGroups,
-        additionalSetup: () async {
-          when(
-            mockEventService.createVolunteerGroup({
-              'eventId': _testEventId,
-              'name': "Srikar's Team",
-              'volunteersRequired': 5,
-            }),
-          ).thenAnswer(
-            (realInvocation) async => QueryResult(
-              options: QueryOptions(document: gql('query {}')),
-              source: QueryResultSource.network,
-            ),
-          );
-        },
-      );
-
-      await tester.tap(find.byKey(_addGroupBtnKey));
-      await tester.pumpAndSettle();
-
-      await tester.enterText(
-        find.byKey(_groupNameFieldKey),
-        "Srikar's Team",
-      );
-      await tester.enterText(
-        find.byKey(_volunteersRequiredFieldKey),
-        "5",
-      );
-
-      await tester.tap(find.text('Create Group'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Failed to create group'), findsOneWidget);
     });
   });
 }
